@@ -1,0 +1,16 @@
+name: Touchdown Free CI
+
+on:
+  pull_request:
+  push:
+    branches: [$default-branch]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  free-ci:
+    uses: Touchdown-Labs/.github/.github/workflows/free-ci.yml@v1
+    with:
+      profile: check-only

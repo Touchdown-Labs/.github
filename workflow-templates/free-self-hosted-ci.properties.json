@@ -1,0 +1,8 @@
+{
+  "name": "Touchdown Free Self-Hosted CI",
+  "description": "Run trusted repository checks on an isolated on-demand runner without GitHub-hosted compute.",
+  "iconName": "shield-check",
+  "categories": [
+    "Continuous integration"
+  ]
+}

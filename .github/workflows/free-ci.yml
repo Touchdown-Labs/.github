@@ -1,0 +1,116 @@
+name: Touchdown Free CI
+
+on:
+  workflow_call:
+    inputs:
+      profile:
+        description: check-only or custom
+        required: false
+        type: string
+        default: check-only
+      ci_script:
+        description: Repository-relative script used by the custom profile
+        required: false
+        type: string
+        default: .github/touchdown-ci.sh
+      timeout_minutes:
+        description: Hard job timeout
+        required: false
+        type: number
+        default: 30
+
+permissions:
+  contents: read
+
+jobs:
+  free-ci:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, touchdown-ci]
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    env:
+      CI: "true"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      UV_NO_CACHE: "1"
+      npm_config_cache: ${{ runner.temp }}/npm-cache
+    steps:
+      - name: Check out the exact caller commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Enforce the isolated free-CI boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$HOME" in
+            */_home) ;;
+            *)
+              echo "::error::Runner HOME is not isolated: $HOME"
+              exit 1
+              ;;
+          esac
+          for name in +            OPENAI_API_KEY +            ANTHROPIC_API_KEY +            OPENROUTER_API_KEY +            GMI_API_KEY +            CLOUDFLARE_API_TOKEN +            TD_MVP_BEARER_TOKEN
+          do
+            if [[ -n "${!name:-}" ]]; then
+              echo "::error::Provider secret $name reached the free-CI process"
+              exit 1
+            fi
+          done
+
+      - name: Run the repository CI contract
+        env:
+          TD_CI_PROFILE: ${{ inputs.profile }}
+          TD_CI_SCRIPT: ${{ inputs.ci_script }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$TD_CI_PROFILE" in
+            check-only)
+              git fsck --no-progress
+              git diff --check
+              while IFS= read -r script; do
+                bash -n "$script"
+              done < <(git ls-files '*.sh')
+              ;;
+            custom)
+              case "$TD_CI_SCRIPT" in
+                /*|*..*)
+                  echo "::error::CI script must stay inside the repository"
+                  exit 2
+                  ;;
+              esac
+              if [[ ! -f "$TD_CI_SCRIPT" ]]; then
+                echo "::error::Missing CI contract: $TD_CI_SCRIPT"
+                exit 2
+              fi
+              bash "$TD_CI_SCRIPT"
+              ;;
+            *)
+              echo "::error::Unsupported CI profile: $TD_CI_PROFILE"
+              exit 2
+              ;;
+          esac
+
+      - name: Write the local receipt
+        if: always()
+        env:
+          TD_JOB_STATUS: ${{ job.status }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo_slug="${GITHUB_REPOSITORY//\//_}"
+          evidence_root="${TD_CI_EVIDENCE_ROOT:-$RUNNER_TEMP/touchdown-ci-evidence}"
+          evidence_dir="$evidence_root/$repo_slug/$GITHUB_RUN_ID/$GITHUB_JOB"
+          mkdir -p "$evidence_dir"
+          chmod 700 "$evidence_dir"
+          receipt="$evidence_dir/receipt.env"
+          {
+            printf 'schema_version=1\n'
+            printf 'repository=%s\n' "$GITHUB_REPOSITORY"
+            printf 'sha=%s\n' "$GITHUB_SHA"
+            printf 'run_id=%s\n' "$GITHUB_RUN_ID"
+            printf 'job=%s\n' "$GITHUB_JOB"
+            printf 'status=%s\n' "$TD_JOB_STATUS"
+            printf 'runner=%s\n' "$RUNNER_NAME"
+          } > "$receipt"
+          shasum -a 256 "$receipt" > "$receipt.sha256"
