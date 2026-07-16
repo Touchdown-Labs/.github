@@ -48,8 +48,15 @@ jobs:
               exit 1
               ;;
           esac
-          for name in +            OPENAI_API_KEY +            ANTHROPIC_API_KEY +            OPENROUTER_API_KEY +            GMI_API_KEY +            CLOUDFLARE_API_TOKEN +            TD_MVP_BEARER_TOKEN
-          do
+          secret_names=(
+            OPENAI_API_KEY
+            ANTHROPIC_API_KEY
+            OPENROUTER_API_KEY
+            GMI_API_KEY
+            CLOUDFLARE_API_TOKEN
+            TD_MVP_BEARER_TOKEN
+          )
+          for name in "${secret_names[@]}"; do
             if [[ -n "${!name:-}" ]]; then
               echo "::error::Provider secret $name reached the free-CI process"
               exit 1
